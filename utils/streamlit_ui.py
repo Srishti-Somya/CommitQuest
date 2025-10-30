@@ -1,6 +1,6 @@
 import streamlit as st
 from streamlit import session_state as sst
-from utils.fetch_github_data import fetch_star_count
+# We no longer need fetch_star_count, so that import is removed.
 
 TOKEN = st.secrets["token"]
 
@@ -30,8 +30,10 @@ def base_ui():
         if sst.username and sst.token and sst.button_pressed:
             nav_ui() # Sidebar navigation menu
 
-        # how_to_use()
-        promo()
+        # This is the new project guide, un-commented and active
+        how_to_use()
+        
+        # The promo() call has been deleted from here
 
 
 def page_config():
@@ -43,18 +45,17 @@ def page_config():
 
     Menu Items:
         - About: Provides information about the app and its developers.
-        - Report a bug: Link to the GitHub issues page for reporting bugs.
     """
 
     st.set_page_config(
-        page_title = "GitHub Stats",
-        page_icon = "./static/icon.png",
+        page_title = "CommitQuest - Monitor your GitHub Stats",
+        page_icon = "./static/icon.png", # You can change this to your own icon
         layout = "wide",
         menu_items={
             "About": """
-            This is a Streamlit app that tracks your GitHub contributions and provides insights into your activity.  
-            """,
-            
+            This is a Streamlit app that tracks GitHub contributions and provides insights into activity.
+            """
+            # You can update the "About" text to be about your version
             }
     )
 
@@ -82,22 +83,15 @@ def initialize_sst():
 
 def title_bar():
     """
-    ### Creates a title bar for the Streamlit UI with the title "GitHub Stats" and a star button.
-
-    The title bar consists of two columns:
-    - The first column displays the title "GitHub Stats".
-    - The second column displays a button with the current star count of the GitHub repository.
-
-    The star button links to the GitHub repository and encourages users to give a star to the repository.
+    ### Creates a title bar for the Streamlit UI with the title "GitHub Stats".
+    
+    The original star button has been removed from this function.
     """
-
-    title_col, star_col = st.columns([8.5,1.5], vertical_alignment="bottom")
-    title_col.title("GitHub Stats")
-    stars = fetch_star_count()
-    star_col.link_button(f"⭐ Star :orange[(**{stars}**)]", 
-                        "https://github.com/TheCarBun/GitHub-Stat-Checker", 
-                        help=f"Give a star to this repository on GitHub. Current stars: {stars}",
-                        use_container_width=True)
+    
+    # The columns and star button have been removed.
+    st.title("GitHub Stats")
+    # You can change the title to "CommitQuest" or your project name here
+    
 
 def form():
     """
@@ -132,20 +126,26 @@ def form():
 
 def how_to_use():
     """
-    ### Displays an expander with instructions on how to use the GitHub stats checker tool.
-
-    The expander contains a brief guide on:
-    - Entering the GitHub username.
-    - Viewing stats and predictions.
-    - Exporting the data for further analysis.
+    ### Displays an expander with instructions on how to use this tool.
+    
+    This is the new "Project Guide" section.
     """
 
-    with st.expander("❓ How to Use This Tool"):
+    with st.expander("❓ Project Guide"):
         st.write("""
-        This tool analyzes your GitHub activity and predicts future contributions.
-        - Enter your GitHub username.
-        - View your stats and predictions.
-        - Export the data for further analysis.
+        **Welcome to your GitHub Stats Analyzer!**
+
+        1.  **Enter Username:** * Type any public GitHub username into the text box above.
+
+        2.  **Add Token (Optional):**
+            * To see stats for your **private** repositories, you must provide a GitHub Personal Access Token.
+            * Toggle "I have a GitHub Access Token."
+            * Paste your token into the password field.
+            * If you only want to see public stats, you can leave this toggled off.
+
+        3.  **Analyze:** * Click the "Analyze" button to fetch the data.
+        
+        4.  **Explore:** * Use the "Overview" and "Predictions" tabs (which appear after analysis) to see your contribution data.
         """)
 
 
@@ -177,10 +177,7 @@ def nav_ui():
             use_container_width=True
             )
 
-def promo():
-    with open("static/sidebar.html", "r", encoding="UTF-8") as sidebar_file:
-        sidebar_html = sidebar_file.read()
-    st.html(sidebar_html)
+# The 'promo()' function definition has been completely deleted.
 
 def growth_stats(total_contributions:int, contribution_rate:int, active_days:int, total_days:int, percent_active_days:float, since:str):
     col1, col2 = st.columns(2)
@@ -188,14 +185,12 @@ def growth_stats(total_contributions:int, contribution_rate:int, active_days:int
         label=f"Total Contributions {since}", 
         value=f"{total_contributions} commits",
         delta=f"{contribution_rate:.2f} contributions/day",
-        delta_color="inverse" if contribution_rate < 1 else "normal",
-        border=True
+        delta_color="inverse" if contribution_rate < 1 else "normal"
         )
     
     col2.metric(
         label="Active Days", 
         value=f"{active_days}/{total_days} days",
         delta=f"{percent_active_days:.1f}% days active",
-        delta_color="inverse" if percent_active_days < 8 else "normal",
-        border=True
+        delta_color="inverse" if percent_active_days < 8 else "normal"
         )
