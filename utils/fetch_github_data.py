@@ -174,7 +174,7 @@ def fetch_star_count():
     """
     Returns the number of stars for the GitHub-Stat-Checker repository.
     """
-    url = "https://api.github.com/repos/TheCarbun/GitHub-Stat-Checker"
+    url = "https:/api.github.com/repos/Srishti-Somya/CommitQuest"
     try:
         response = requests.get(url).json()
         return response.get('stargazers_count', 0)
