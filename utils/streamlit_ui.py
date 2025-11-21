@@ -2,7 +2,10 @@ import streamlit as st
 from streamlit import session_state as sst
 # We no longer need fetch_star_count, so that import is removed.
 
-TOKEN = st.secrets["token"]
+try:
+    TOKEN = st.secrets.get("token", "")
+except Exception:
+    TOKEN = ""
 
 def base_ui():
     """
