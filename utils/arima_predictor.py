@@ -11,6 +11,10 @@ except Exception:  # pragma: no cover - optional deps
     pm = None
     SARIMAX = None
 from pandas.tseries.frequencies import to_offset
+import os
+import json
+from datetime import datetime
+from joblib import dump, load
 
 
 def contributions_weeks_to_series(weeks: list) -> pd.Series:
@@ -86,7 +90,7 @@ def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal
         mean.index = pd.date_range(start=start, periods=periods, freq=freq)
         ci.index = mean.index
 
-        return {"forecast": mean, "conf_int": ci, "model": res}
+        return {"forecast": mean, "conf_int": ci, "model": res, "auto_arima": am}
 
     except Exception as e:
         # fallback: use recent mean
@@ -97,7 +101,7 @@ def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal
         idx = pd.date_range(start=start, periods=periods, freq=freq)
         forecast_series = pd.Series([mean_val] * periods, index=idx)
         ci = pd.DataFrame({"lower": forecast_series * 0.9, "upper": forecast_series * 1.1}, index=idx)
-        return {"forecast": forecast_series, "conf_int": ci, "model": None, "error": str(e)}
+        return {"forecast": forecast_series, "conf_int": ci, "model": None, "auto_arima": None, "error": str(e)}
 
 
 def forecast_contributions_from_weeks(weeks: list, periods: int, seasonal: bool = True, m: int = 7, freq: str = "D") -> Dict[str, Any]:
@@ -109,3 +113,69 @@ def forecast_contributions_from_weeks(weeks: list, periods: int, seasonal: bool 
     """
     series = contributions_weeks_to_series(weeks)
     return forecast_contributions_from_series(series, periods=periods, seasonal=seasonal, m=m, freq=freq)
+
+
+def build_model_metadata(series: pd.Series, freq: str = "D", m: int = 7, auto_arima_model=None, sarimax_res=None) -> dict:
+    """Build a small metadata dict describing the training data and model parameters.
+
+    Includes date range, observation count, percent zeros, aggregation frequency, seasonal period,
+    and (if provided) the auto_arima selected orders and SARIMAX fit statistics.
+    """
+    start = series.index.min().strftime("%Y-%m-%d") if not series.empty else None
+    end = series.index.max().strftime("%Y-%m-%d") if not series.empty else None
+    obs = int(len(series))
+    pct_zeros = float((series == 0).sum() / obs * 100) if obs > 0 else 0.0
+    meta = {
+        "date_range": {"start": start, "end": end},
+        "observations": obs,
+        "percent_zeros": pct_zeros,
+        "freq": freq,
+        "seasonal_m": m,
+        "saved_at": datetime.utcnow().isoformat() + "Z",
+    }
+    if auto_arima_model is not None:
+        try:
+            meta["auto_arima_order"] = list(getattr(auto_arima_model, "order", []))
+            meta["auto_arima_seasonal_order"] = list(getattr(auto_arima_model, "seasonal_order", []))
+        except Exception:
+            pass
+    if sarimax_res is not None:
+        try:
+            meta["aic"] = float(getattr(sarimax_res, "aic", None))
+            meta["bic"] = float(getattr(sarimax_res, "bic", None))
+        except Exception:
+            pass
+    return meta
+
+
+def save_model_to_disk(results_obj, metadata: dict, model_path: str):
+    """Persist a fitted model object and its metadata to disk.
+
+    - `results_obj` is the fitted statsmodels results object (pickleable via joblib).
+    - `metadata` is a JSON-serializable dict.
+    - `model_path` is the target file path for the model (e.g. models/user_sarimax.pkl).
+    The metadata is written to `model_path + '.meta.json'`.
+    """
+    os.makedirs(os.path.dirname(model_path) or ".", exist_ok=True)
+    dump(results_obj, model_path)
+    meta_path = model_path + ".meta.json"
+    with open(meta_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+
+
+def load_model_from_disk(model_path: str):
+    """Load a model and its metadata from disk. Returns (results_obj, metadata_or_None).
+    If the model file does not exist an exception is raised.
+    """
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(model_path)
+    results_obj = load(model_path)
+    meta = None
+    meta_path = model_path + ".meta.json"
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+        except Exception:
+            meta = None
+    return results_obj, meta

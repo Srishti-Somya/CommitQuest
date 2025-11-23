@@ -4,9 +4,17 @@ from datetime import datetime, timedelta
 from utils.fetch_github_data import fetch_data_for_duration, fetch_user_data
 from utils.process_github_data import analyze_contributions, process_user_data
 from utils.util import predict_days_to_milestone, get_milestone_dates, format_date_ddmmyyyy
-from utils.arima_predictor import forecast_contributions_from_weeks
+from utils.arima_predictor import (
+    forecast_contributions_from_weeks,
+    contributions_weeks_to_series,
+    save_model_to_disk,
+    load_model_from_disk,
+    build_model_metadata,
+)
 from utils.streamlit_ui import base_ui
-from utils.arima_predictor import contributions_weeks_to_series
+import os
+import math
+import pandas as pd
 import plotly.graph_objects as go
 
 def main():
@@ -224,18 +232,48 @@ def main():
         if st.button("Run ARIMA Prediction"):
             try:
                 weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+                # prepare series for metadata and potential saving
+                hist_series_full = contributions_weeks_to_series(weeks)
                 # compute periods depending on aggregation
                 if freq == "D":
                     periods = remaining_days
                 elif freq == "W":
-                    import math
                     periods = math.ceil(remaining_days / 7)
                 else:  # M
-                    import math
                     periods = math.ceil(remaining_days / 30)
+                # If a saved pickled model exists for this user, try loading and using it
+                model_dir = os.path.join("models")
+                model_path = os.path.join(model_dir, f"{sst.username}_sarimax.pkl")
+                forecast = None
+                ci = None
+                loaded_model_used = False
+                if os.path.exists(model_path):
+                    try:
+                        res_obj, meta = load_model_from_disk(model_path)
+                        pred = res_obj.get_forecast(steps=periods)
+                        mean = pred.predicted_mean
+                        ci = pred.conf_int()
+                        # align index starting the next period according to freq
+                        if not hist_series_full.empty:
+                            if freq == "D":
+                                start = hist_series_full.index.max() + pd.Timedelta(days=1)
+                            elif freq == "W":
+                                start = hist_series_full.index.max() + pd.Timedelta(weeks=1)
+                            else:
+                                start = hist_series_full.index.max() + pd.DateOffset(months=1)
+                            mean.index = pd.date_range(start=start, periods=periods, freq=freq)
+                            ci.index = mean.index
+                        forecast = mean
+                        loaded_model_used = True
+                        sst.arima_model_path = model_path
+                    except Exception:
+                        # failed to load or use saved model; fallback to refit
+                        forecast = None
 
-                arima_res = forecast_contributions_from_weeks(weeks, periods=periods, seasonal=True, m=7, freq=freq)
-                forecast = arima_res.get("forecast")
+                if not loaded_model_used:
+                    arima_res = forecast_contributions_from_weeks(weeks, periods=periods, seasonal=True, m=7, freq=freq)
+                    forecast = arima_res.get("forecast")
+                    ci = arima_res.get("conf_int")
                 if forecast is not None and len(forecast) > 0:
                     arima_predicted_future_contributions = float(forecast.sum())
                     arima_predicted_future_active_days = int((forecast > 0).sum())
@@ -265,7 +303,34 @@ def main():
                         "conf_int_upper": [],
                     }
                 sst.arima_error = None
-                st.success("ARIMA prediction completed and applied.")
+                # If a fitted model is available, save it to disk with metadata
+                try:
+                    fitted = arima_res.get("model")
+                    if fitted is not None and getattr(sst, "username", None):
+                        model_dir = os.path.join("models")
+                        os.makedirs(model_dir, exist_ok=True)
+                        model_path = os.path.join(model_dir, f"{sst.username}_sarimax.pkl")
+                        am = arima_res.get("auto_arima")
+                        meta = build_model_metadata(hist_series_full, freq=freq, m=7, auto_arima_model=am, sarimax_res=fitted)
+                        save_model_to_disk(fitted, meta, model_path)
+                        # persist the exact training dataset used (raw daily series pre-aggregation)
+                        try:
+                            train_csv_path = model_path + ".train.csv"
+                            train_json_path = model_path + ".train.json"
+                            # hist_series_full is a pd.Series; convert to DataFrame for consistent export
+                            df_train = hist_series_full.reset_index()
+                            df_train.columns = ["date", "contributions"]
+                            df_train.to_csv(train_csv_path, index=False)
+                            df_train.to_json(train_json_path, orient='records', date_format='iso')
+                        except Exception:
+                            # don't fail saving model if dataset export fails
+                            pass
+                        sst.arima_model_path = model_path
+                        st.success(f"ARIMA prediction completed and model saved: {model_path}")
+                    else:
+                        st.success("ARIMA prediction completed and applied.")
+                except Exception:
+                    st.success("ARIMA prediction completed and applied (model not saved).")
             except Exception as e:
                 sst.arima_results = None
                 sst.arima_error = str(e)
@@ -310,6 +375,40 @@ def main():
             with st.container():
                 st.markdown("#### :bar_chart: ARIMA / SARIMA Predictions")
 
+                # prepare history series for this ARIMA section (used for export, load, download and metadata)
+                try:
+                    weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+                    hist_series_full = contributions_weeks_to_series(weeks)
+                except Exception:
+                    hist_series_full = pd.Series(dtype=float)
+
+                # Single unified download: serve saved training CSV if present, otherwise the raw daily series
+                try:
+                    train_csv_path = os.path.join("models", f"{sst.username}_sarimax.pkl.train.csv")
+                    if os.path.exists(train_csv_path):
+                        with open(train_csv_path, 'rb') as f:
+                            csv_bytes = f.read()
+                    elif not hist_series_full.empty:
+                        df_train = hist_series_full.reset_index()
+                        df_train.columns = ["date", "contributions"]
+                        csv_bytes = df_train.to_csv(index=False).encode('utf-8')
+                    else:
+                        csv_bytes = None
+
+                    if csv_bytes:
+                        st.download_button(label="Download Data (CSV)", data=csv_bytes, file_name=f"{sst.username}_data.csv", mime='text/csv')
+                    else:
+                        st.info("No data available to download")
+                except Exception:
+                    st.info("Data download unavailable")
+
+                # Note: explicit "Load saved ARIMA model" button removed by user request.
+                # The code still keeps `model_path` available for downloads and metadata, but
+                # does not expose a UI control to load a saved model into the session.
+                model_dir = os.path.join("models")
+                model_path = os.path.join(model_dir, f"{sst.username}_sarimax.pkl")
+                # (Download handled by single unified button above)
+
                 # --- Data Export (CSV/JSON) for the data used by ARIMA ---
                 try:
                     weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
@@ -322,11 +421,8 @@ def main():
                         hist_series = hist_series_full.resample('M').sum()
 
                     csv_data = hist_series.reset_index().rename(columns={"date": "date", 0: "contributions"})
-                    # prepare download content
+                    # prepare download content (no separate download button; use unified download)
                     csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
-                    json_str = csv_data.to_json(orient='records', date_format='iso')
-                    st.download_button(label="Download Data (CSV)", data=csv_bytes, file_name="contributions_export.csv", mime='text/csv')
-                    st.download_button(label="Download Data (JSON)", data=json_str, file_name="contributions_export.json", mime='application/json')
                 except Exception:
                     st.info("Export unavailable: no contribution history present")
 
