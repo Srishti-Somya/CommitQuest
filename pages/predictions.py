@@ -215,11 +215,26 @@ def main():
                 st.info("Create GitHub Access Token to view these stats")
 
         # --- Controls to run and reveal ARIMA Predictions section ---
+        # Aggregation selector (Daily / Weekly / Monthly)
+        agg_map = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
+        agg_choice = st.selectbox("Aggregation for modeling & export:", options=["Daily", "Weekly", "Monthly"], index=0, help="Choose how to aggregate the contribution history for ARIMA modeling and for CSV/JSON export")
+        freq = agg_map.get(agg_choice, "D")
+
         # Place the explicit Run button just above the Show ARIMA button as requested
         if st.button("Run ARIMA Prediction"):
             try:
                 weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
-                arima_res = forecast_contributions_from_weeks(weeks, periods=remaining_days, seasonal=True, m=7)
+                # compute periods depending on aggregation
+                if freq == "D":
+                    periods = remaining_days
+                elif freq == "W":
+                    import math
+                    periods = math.ceil(remaining_days / 7)
+                else:  # M
+                    import math
+                    periods = math.ceil(remaining_days / 30)
+
+                arima_res = forecast_contributions_from_weeks(weeks, periods=periods, seasonal=True, m=7, freq=freq)
                 forecast = arima_res.get("forecast")
                 if forecast is not None and len(forecast) > 0:
                     arima_predicted_future_contributions = float(forecast.sum())
@@ -295,6 +310,26 @@ def main():
             with st.container():
                 st.markdown("#### :bar_chart: ARIMA / SARIMA Predictions")
 
+                # --- Data Export (CSV/JSON) for the data used by ARIMA ---
+                try:
+                    weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+                    hist_series_full = contributions_weeks_to_series(weeks)
+                    if freq == "D":
+                        hist_series = hist_series_full
+                    elif freq == "W":
+                        hist_series = hist_series_full.resample('W-MON').sum()
+                    else:
+                        hist_series = hist_series_full.resample('M').sum()
+
+                    csv_data = hist_series.reset_index().rename(columns={"date": "date", 0: "contributions"})
+                    # prepare download content
+                    csv_bytes = csv_data.to_csv(index=False).encode('utf-8')
+                    json_str = csv_data.to_json(orient='records', date_format='iso')
+                    st.download_button(label="Download Data (CSV)", data=csv_bytes, file_name="contributions_export.csv", mime='text/csv')
+                    st.download_button(label="Download Data (JSON)", data=json_str, file_name="contributions_export.json", mime='application/json')
+                except Exception:
+                    st.info("Export unavailable: no contribution history present")
+
                 # ARIMA metrics (fallback to averages if absent)
                 arima_fc = sst.arima_results or {}
                 arima_future_contribs = arima_fc.get("predicted_future_contributions", avg_predicted_future_contributions)
@@ -348,7 +383,13 @@ def main():
                 # Visualization: historical series + ARIMA forecast
                 try:
                     weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
-                    hist_series = contributions_weeks_to_series(weeks)
+                    hist_series_full = contributions_weeks_to_series(weeks)
+                    if freq == "D":
+                        hist_series = hist_series_full
+                    elif freq == "W":
+                        hist_series = hist_series_full.resample('W-MON').sum()
+                    else:
+                        hist_series = hist_series_full.resample('M').sum()
                     fc_vals = sst.arima_results.get("forecast_values", []) if sst.arima_results else []
                     fc_dates = sst.arima_results.get("forecast_dates", []) if sst.arima_results else []
                     lower = sst.arima_results.get("conf_int_lower", []) if sst.arima_results else []
@@ -365,6 +406,23 @@ def main():
                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                 except Exception:
                     st.info("ARIMA visualization unavailable")
+
+                # Data Used panel: date range, obs count, percent zeros, seasonal m
+                try:
+                    if 'hist_series_full' not in locals():
+                        weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
+                        hist_series_full = contributions_weeks_to_series(weeks)
+                    start_date = hist_series_full.index.min().strftime('%Y-%m-%d') if not hist_series_full.empty else 'N/A'
+                    end_date = hist_series_full.index.max().strftime('%Y-%m-%d') if not hist_series_full.empty else 'N/A'
+                    obs = len(hist_series_full)
+                    pct_zeros = (hist_series_full == 0).sum() / obs * 100 if obs>0 else 0
+                    st.markdown("**Data Used for ARIMA**")
+                    st.write(f"Date range: {start_date} → {end_date}")
+                    st.write(f"Observations (pre-aggregation): {obs}")
+                    st.write(f"Percent zero-periods (pre-aggregation): {pct_zeros:.1f}%")
+                    st.write(f"Seasonal period (m): 7 (weekly seasonality by default)")
+                except Exception:
+                    pass
 
                 # Custom target prediction in ARIMA section
                 with st.container():

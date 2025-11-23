@@ -10,6 +10,7 @@ try:
 except Exception:  # pragma: no cover - optional deps
     pm = None
     SARIMAX = None
+from pandas.tseries.frequencies import to_offset
 
 
 def contributions_weeks_to_series(weeks: list) -> pd.Series:
@@ -55,7 +56,7 @@ def fit_auto_arima(series: pd.Series, seasonal: bool = True, m: int = 7):
     return model
 
 
-def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal: bool = True, m: int = 7) -> Dict[str, Any]:
+def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal: bool = True, m: int = 7, freq: str = "D") -> Dict[str, Any]:
     """Forecast future contributions for `periods` days using auto_arima -> SARIMAX.
 
     Returns a dict with `forecast` (pd.Series), `conf_int` (pd.DataFrame), and `model` (fit result or None).
@@ -79,9 +80,10 @@ def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal
         mean = pred.predicted_mean
         ci = pred.conf_int()
 
-        # ensure index is daily starting the next day
-        start = series.index.max() + pd.Timedelta(days=1)
-        mean.index = pd.date_range(start=start, periods=periods, freq="D")
+        # ensure index starts the next period according to requested freq
+        offset = to_offset(freq)
+        start = series.index.max() + offset
+        mean.index = pd.date_range(start=start, periods=periods, freq=freq)
         ci.index = mean.index
 
         return {"forecast": mean, "conf_int": ci, "model": res}
@@ -90,13 +92,20 @@ def forecast_contributions_from_series(series: pd.Series, periods: int, seasonal
         # fallback: use recent mean
         recent = series[-30:] if len(series) >= 30 else series
         mean_val = float(np.nanmean(recent)) if len(recent) > 0 else 0.0
-        start = series.index.max() + pd.Timedelta(days=1)
-        idx = pd.date_range(start=start, periods=periods, freq="D")
+        offset = to_offset(freq)
+        start = series.index.max() + offset
+        idx = pd.date_range(start=start, periods=periods, freq=freq)
         forecast_series = pd.Series([mean_val] * periods, index=idx)
         ci = pd.DataFrame({"lower": forecast_series * 0.9, "upper": forecast_series * 1.1}, index=idx)
         return {"forecast": forecast_series, "conf_int": ci, "model": None, "error": str(e)}
 
 
-def forecast_contributions_from_weeks(weeks: list, periods: int, seasonal: bool = True, m: int = 7) -> Dict[str, Any]:
+def forecast_contributions_from_weeks(weeks: list, periods: int, seasonal: bool = True, m: int = 7, freq: str = "D") -> Dict[str, Any]:
+    """Forecast convenience wrapper that accepts the GitHub weeks payload and optionally a frequency.
+
+    `freq` follows pandas offset aliases (e.g. 'D', 'W', 'M'). When using weekly or monthly
+    aggregation, the `periods` argument should represent the number of periods at that freq
+    (caller is responsible for converting remaining days -> periods for the chosen freq).
+    """
     series = contributions_weeks_to_series(weeks)
-    return forecast_contributions_from_series(series, periods=periods, seasonal=seasonal, m=m)
+    return forecast_contributions_from_series(series, periods=periods, seasonal=seasonal, m=m, freq=freq)
