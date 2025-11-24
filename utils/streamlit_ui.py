@@ -89,11 +89,8 @@ def title_bar():
     The original star button has been removed from this function.
     """
     
-    # The columns and star button have been removed.
-    st.title("GitHub Stats")
-    # You can change the title to "CommitQuest" or your project name here
+    st.title("CommitQuest - Monitor your GitHub Stats")
     
-
 def form():
     """
     ### Creates a form in a Streamlit container for GitHub username and optional personal access token input.

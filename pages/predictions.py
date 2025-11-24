@@ -152,11 +152,11 @@ def main():
 
             # If ARIMA results exist, show a small summary block so users can compare methods
             if sst.arima_results:
-                with st.expander("ARIMA Prediction Details", expanded=False):
-                    st.write(f"Predicted future contributions (ARIMA): {sst.arima_results['predicted_future_contributions']:.2f}")
-                    st.write(f"Predicted future active days (ARIMA): {sst.arima_results['predicted_future_active_days']}")
+                with st.expander("SARIMA Prediction Details", expanded=False):
+                    st.write(f"Predicted future contributions (SARIMA): {sst.arima_results['predicted_future_contributions']:.2f}")
+                    st.write(f"Predicted future active days (SARIMA): {sst.arima_results['predicted_future_active_days']}")
                     if sst.arima_error:
-                        st.warning(f"Note: ARIMA error: {sst.arima_error}")
+                        st.warning(f"Note: SARIMA error: {sst.arima_error}")
 
         # Milestone goals
         milestones = [100, 500, 1000, 2000, 5000, 10000]
@@ -222,14 +222,12 @@ def main():
             else:
                 st.info("Create GitHub Access Token to view these stats")
 
-        # --- Controls to run and reveal ARIMA Predictions section ---
-        # Aggregation selector (Daily / Weekly / Monthly)
+
         agg_map = {"Daily": "D", "Weekly": "W", "Monthly": "M"}
-        agg_choice = st.selectbox("Aggregation for modeling & export:", options=["Daily", "Weekly", "Monthly"], index=0, help="Choose how to aggregate the contribution history for ARIMA modeling and for CSV/JSON export")
+        agg_choice = st.selectbox("Aggregation for modeling & export:", options=["Daily", "Weekly", "Monthly"], index=0, help="Choose how to aggregate the contribution history for SARIMA modeling and for CSV/JSON export")
         freq = agg_map.get(agg_choice, "D")
 
-        # Place the explicit Run button just above the Show ARIMA button as requested
-        if st.button("Run ARIMA Prediction"):
+        if st.button("Run SARIMA Prediction"):
             try:
                 weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
                 # prepare series for metadata and potential saving
@@ -326,21 +324,21 @@ def main():
                             # don't fail saving model if dataset export fails
                             pass
                         sst.arima_model_path = model_path
-                        st.success(f"ARIMA prediction completed and model saved: {model_path}")
+                        st.success(f"SARIMA prediction completed and model saved: {model_path}")
                     else:
                         st.success("ARIMA prediction completed and applied.")
                 except Exception:
-                    st.success("ARIMA prediction completed and applied (model not saved).")
+                    st.success("SARIMA prediction completed and applied (model not saved).")
             except Exception as e:
                 sst.arima_results = None
                 sst.arima_error = str(e)
-                st.error(f"ARIMA prediction failed: {e}")
+                st.error(f"SARIMA prediction failed: {e}")
 
         if st.button("Show ARIMA Predictions"):
             sst.show_arima_section = True
 
         if getattr(sst, "show_arima_section", False):
-            # Prepare ARIMA results if not present
+            
             try:
                 if not sst.arima_results:
                     weeks = current_year_data["data"]["user"]["contributionsCollection"]["contributionCalendar"]["weeks"]
@@ -373,7 +371,7 @@ def main():
 
             # --- ARIMA Predictions Section ---
             with st.container():
-                st.markdown("#### :bar_chart: ARIMA / SARIMA Predictions")
+                st.markdown("#### :bar_chart: SARIMA Predictions")
 
                 # prepare history series for this ARIMA section (used for export, load, download and metadata)
                 try:
@@ -402,9 +400,6 @@ def main():
                 except Exception:
                     st.info("Data download unavailable")
 
-                # Note: explicit "Load saved ARIMA model" button removed by user request.
-                # The code still keeps `model_path` available for downloads and metadata, but
-                # does not expose a UI control to load a saved model into the session.
                 model_dir = os.path.join("models")
                 model_path = os.path.join(model_dir, f"{sst.username}_sarimax.pkl")
                 # (Download handled by single unified button above)
@@ -441,12 +436,12 @@ def main():
                     arima_growth = ((arima_rate - contribution_rate_ly) / contribution_rate_ly) * 100
 
                 c1, c2, c3 = st.columns(3)
-                c1.metric(label="Contribution Rate Growth (ARIMA)", value=f"{arima_growth:.2f}%", delta="+Increasing" if arima_growth>0 else "-Decreasing")
-                c2.metric(label="Predicted Contributions This Year (ARIMA)", value=f"{(arima_future_contribs + total_contributions):.0f} commits", delta=f"{'+' if arima_future_contribs>0 else '-'}{arima_future_contribs:.0f} commits")
-                c3.metric(label="Predicted Active Days This Year (ARIMA)", value=f"{(arima_future_active_days + active_days):.0f} days", delta=f"{'+' if arima_future_active_days>0 else '-'}{arima_future_active_days:.0f} days")
+                c1.metric(label="Contribution Rate Growth (SARIMA)", value=f"{arima_growth:.2f}%", delta="+Increasing" if arima_growth>0 else "-Decreasing")
+                c2.metric(label="Predicted Contributions This Year (SARIMA)", value=f"{(arima_future_contribs + total_contributions):.0f} commits", delta=f"{'+' if arima_future_contribs>0 else '-'}{arima_future_contribs:.0f} commits")
+                c3.metric(label="Predicted Active Days This Year (SARIMA)", value=f"{(arima_future_active_days + active_days):.0f} days", delta=f"{'+' if arima_future_active_days>0 else '-'}{arima_future_active_days:.0f} days")
 
                 # Milestone estimates using ARIMA forecast
-                st.markdown("**Estimated milestone dates (ARIMA)**")
+                st.markdown("**Estimated milestone dates (SARIMA)**")
                 milestones_to_check = [2000, 5000, 10000]
 
                 def find_milestone_date_from_forecast(total_current, forecast_values, forecast_dates, milestone):
@@ -466,7 +461,7 @@ def main():
                     if sst.arima_results and sst.arima_results.get("forecast_values"):
                         date = find_milestone_date_from_forecast(total_contributions, sst.arima_results.get("forecast_values", []), sst.arima_results.get("forecast_dates", []), m)
                     if date:
-                        st.write(f"Milestone {m}: estimated on {date} (ARIMA)")
+                        st.write(f"Milestone {m}: estimated on {date} (SARIMA)")
                     else:
                         # fallback to average days
                         days_needed = predict_days_to_milestone(total_contributions, m, contribution_rate)
@@ -495,13 +490,13 @@ def main():
                     if not hist_series.empty:
                         fig.add_trace(go.Scatter(x=hist_series.index, y=hist_series.values, mode='lines', name='History', line=dict(color='white')))
                     if fc_vals and fc_dates:
-                        fig.add_trace(go.Scatter(x=fc_dates, y=fc_vals, mode='lines+markers', name='ARIMA Forecast', line=dict(color='yellow')))
+                        fig.add_trace(go.Scatter(x=fc_dates, y=fc_vals, mode='lines+markers', name='SARIMA Forecast', line=dict(color='yellow')))
                         if lower and upper and len(lower)==len(fc_vals) and len(upper)==len(fc_vals):
                             fig.add_trace(go.Scatter(x=fc_dates+fc_dates[::-1], y=upper+lower[::-1], fill='toself', fillcolor='rgba(255,255,0,0.1)', line=dict(color='rgba(255,255,0,0)'), showlegend=False))
                     fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', font_color='white', height=350)
                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                 except Exception:
-                    st.info("ARIMA visualization unavailable")
+                    st.info("SARIMA visualization unavailable")
 
                 # Data Used panel: date range, obs count, percent zeros, seasonal m
                 try:
@@ -512,7 +507,7 @@ def main():
                     end_date = hist_series_full.index.max().strftime('%Y-%m-%d') if not hist_series_full.empty else 'N/A'
                     obs = len(hist_series_full)
                     pct_zeros = (hist_series_full == 0).sum() / obs * 100 if obs>0 else 0
-                    st.markdown("**Data Used for ARIMA**")
+                    st.markdown("**Data Used for SARIMA**")
                     st.write(f"Date range: {start_date} → {end_date}")
                     st.write(f"Observations (pre-aggregation): {obs}")
                     st.write(f"Percent zero-periods (pre-aggregation): {pct_zeros:.1f}%")
@@ -522,15 +517,15 @@ def main():
 
                 # Custom target prediction in ARIMA section
                 with st.container():
-                    st.markdown("#### :dart: Custom Target Prediction (ARIMA)")
+                    st.markdown("#### :dart: Custom Target Prediction (SARIMA)")
                     tcol_a, tcol_b = st.columns([3,1])
                     target_commits_arima = tcol_a.number_input("Enter target total commits (absolute number):", min_value=1, value=int(total_contributions + 150), step=1, key='arima_target')
-                    if tcol_b.button("Predict Target Date (ARIMA)"):
+                    if tcol_b.button("Predict Target Date (SARIMA)"):
                         predicted_date = None
                         if sst.arima_results and sst.arima_results.get("forecast_values"):
                             predicted_date = find_milestone_date_from_forecast(total_contributions, sst.arima_results.get("forecast_values", []), sst.arima_results.get("forecast_dates", []), target_commits_arima)
                         if predicted_date:
-                            st.success(f"Estimated date to reach {target_commits_arima} commits (ARIMA): {predicted_date}")
+                            st.success(f"Estimated date to reach {target_commits_arima} commits (SARIMA): {predicted_date}")
                         else:
                             days_needed = predict_days_to_milestone(total_contributions, target_commits_arima, contribution_rate)
                             if days_needed == float('inf'):
